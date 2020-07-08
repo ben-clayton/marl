@@ -276,6 +276,7 @@ if(MARL_BUILD_TESTS)
         ${MARL_SRC_DIR}/blockingcall_test.cpp
         ${MARL_SRC_DIR}/conditionvariable_test.cpp
         ${MARL_SRC_DIR}/containers_test.cpp
+        ${MARL_SRC_DIR}/dag_test.cpp
         ${MARL_SRC_DIR}/defer_test.cpp
         ${MARL_SRC_DIR}/event_test.cpp
         ${MARL_SRC_DIR}/marl_test.cpp
@@ -289,12 +290,14 @@ if(MARL_BUILD_TESTS)
         ${MARL_SRC_DIR}/ticket_test.cpp
         ${MARL_SRC_DIR}/waitgroup_test.cpp
         ${MARL_GOOGLETEST_DIR}/googletest/src/gtest-all.cc
+        ${MARL_GOOGLETEST_DIR}/googlemock/src/gmock-all.cc
     )
 
     set(MARL_TEST_INCLUDE_DIR
         ${MARL_GOOGLETEST_DIR}/googletest/include/
         ${MARL_GOOGLETEST_DIR}/googlemock/include/
         ${MARL_GOOGLETEST_DIR}/googletest/
+        ${MARL_GOOGLETEST_DIR}/googlemock/
     )
 
     add_executable(marl-unittests ${MARL_TEST_LIST})
