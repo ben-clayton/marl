@@ -40,6 +40,7 @@
 
 #include "marl/export.h"
 #include "marl/memory.h"
+#include "marl/sanitizers.h"
 
 #include <functional>
 #include <memory>
@@ -90,6 +91,48 @@ class OSFiber {
   marl_fiber_context context;
   std::function<void()> target;
   Allocation stack;
+
+#if THREAD_SANITIZER_ENABLED
+  struct TSAN {
+    void* fiber = nullptr;
+    bool owner = false;
+
+    void pre_switch(OSFiber* to) { __tsan_switch_to_fiber(to->tsan.fiber, 0); }
+    ~TSAN() {
+      if (owner) {
+        __tsan_destroy_fiber(fiber);
+      }
+    }
+  } tsan;
+#endif  // THREAD_SANITIZER_ENABLED
+
+#if ADDRESS_SANITIZER_ENABLED
+  struct ASAN {
+    void* stack_save = nullptr;
+    const void* stack_base = nullptr;
+    size_t stack_size = 0;
+    ASAN* switched_from = nullptr;
+
+    void pre_switch(OSFiber* to) {
+      to->asan.switched_from = this;
+      __sanitizer_start_switch_fiber(&stack_save, to->asan.stack_base,
+                                     to->asan.stack_size);
+    }
+    void post_switch() {
+      __sanitizer_finish_switch_fiber(stack_save, &switched_from->stack_base,
+                                      &switched_from->stack_size);
+    }
+    ~ASAN() {
+      if (stack_save) {
+        // "When leaving a fiber definitely, NULL must be passed as the first
+        // argument to the __sanitizer_start_switch_fiber() function so that the
+        // fake stack is destroyed."
+        __sanitizer_start_switch_fiber(nullptr, stack_base, stack_size);
+        __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
+      }
+    }
+  } asan;
+#endif  // ADDRESS_SANITIZER_ENABLED
 };
 
 OSFiber::OSFiber(Allocator* allocator) : allocator(allocator) {}
@@ -104,6 +147,9 @@ Allocator::unique_ptr<OSFiber> OSFiber::createFiberFromCurrentThread(
     Allocator* allocator) {
   auto out = allocator->make_unique<OSFiber>(allocator);
   out->context = {};
+
+  THREAD_SANITIZER_ONLY(out->tsan.fiber = __tsan_get_current_fiber());
+
   return out;
 }
 
@@ -123,18 +169,37 @@ Allocator::unique_ptr<OSFiber> OSFiber::createFiber(
   out->context = {};
   out->target = func;
   out->stack = allocator->allocate(request);
+
   marl_fiber_set_target(
       &out->context, out->stack.ptr, static_cast<uint32_t>(stackSize),
       reinterpret_cast<void (*)(void*)>(&OSFiber::run), out.get());
+
+#if ADDRESS_SANITIZER_ENABLED
+  out->asan.stack_base =
+      static_cast<uint8_t*>(out->stack.ptr) - out->stack.request.size;
+  out->asan.stack_size = out->stack.request.size;
+#endif
+
+#if THREAD_SANITIZER_ENABLED
+  out->tsan.fiber = __tsan_create_fiber(0);
+  out->tsan.owner = true;
+#endif
+
   return out;
 }
 
 void OSFiber::run(OSFiber* self) {
+  ADDRESS_SANITIZER_ONLY(self->asan.post_switch());
   self->target();
 }
 
 void OSFiber::switchTo(OSFiber* fiber) {
+  THREAD_SANITIZER_ONLY(tsan.pre_switch(fiber));
+  ADDRESS_SANITIZER_ONLY(asan.pre_switch(fiber));
+
   marl_fiber_swap(&context, &fiber->context);
+
+  ADDRESS_SANITIZER_ONLY(asan.post_switch());
 }
 
 }  // namespace marl

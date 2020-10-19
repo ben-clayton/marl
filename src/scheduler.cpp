@@ -48,6 +48,13 @@
               "fiber %d was in state %s, but expected %s", (int)FIBER->id, \
               Fiber::toString(FIBER->state), Fiber::toString(STATE))
 
+// When using the __tsan_switch_to_fiber() annotations, TSAN will treat fibers
+// essentially like threads, and will error on mutexes locked in one fiber and
+// unlocked in another. The Worker::Work::mutex is locked during the transition
+// of fibers, causing false-positive TSAN errors. To work around this, we unlock
+// the Work::mutex for the duration of the fiber switch.
+#define TSAN_WORKAROUND(x) THREAD_SANITIZER_ONLY(x)
+
 namespace {
 
 #if ENABLE_DEBUG_LOGGING
@@ -702,9 +709,12 @@ void Scheduler::Worker::runUntilIdle() {
 Scheduler::Fiber* Scheduler::Worker::createWorkerFiber() {
   auto fiberId = static_cast<uint32_t>(workerFibers.size() + 1);
   DBG_LOG("%d: CREATE(%d)", (int)id, (int)fiberId);
-  auto fiber = Fiber::create(scheduler->cfg.allocator, fiberId,
-                             scheduler->cfg.fiberStackSize,
-                             [&]() REQUIRES(work.mutex) { run(); });
+  auto fiber =
+      Fiber::create(scheduler->cfg.allocator, fiberId,
+                    scheduler->cfg.fiberStackSize, [&]() REQUIRES(work.mutex) {
+                      TSAN_WORKAROUND(work.mutex.lock());
+                      run();
+                    });
   auto ptr = fiber.get();
   workerFibers.emplace_back(std::move(fiber));
   return ptr;
@@ -716,7 +726,9 @@ void Scheduler::Worker::switchToFiber(Fiber* to) {
               "switching to idle fiber");
   auto from = currentFiber;
   currentFiber = to;
+  TSAN_WORKAROUND(work.mutex.unlock());
   from->switchTo(to);
+  TSAN_WORKAROUND(work.mutex.lock());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

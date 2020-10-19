@@ -15,6 +15,14 @@
 #ifndef marl_sanitizers_h
 #define marl_sanitizers_h
 
+#include <stddef.h>  // size_t
+
+// MARL_NOP_STATEMENT is a do-nothing statement. Used for XXX_ONLY() macros that
+// have been disabled, so a trailing semicolon does not result in a warning.
+#define MARL_NOP_STATEMENT \
+  do {                     \
+  } while (false)
+
 // Define ADDRESS_SANITIZER_ENABLED to 1 if the project was built with the
 // address sanitizer enabled (-fsanitize=address).
 #if defined(__SANITIZE_ADDRESS__)
@@ -27,13 +35,24 @@
 #endif  // defined(__clang__)
 #endif  // defined(__SANITIZE_ADDRESS__)
 
+#if ADDRESS_SANITIZER_ENABLED
+extern "C" {
+void __sanitizer_start_switch_fiber(void** fake_stack_save,
+                                    const void* bottom,
+                                    size_t size);
+void __sanitizer_finish_switch_fiber(void* fake_stack_save,
+                                     const void** bottom_old,
+                                     size_t* size_old);
+}
+#endif  // ADDRESS_SANITIZER_ENABLED
+
 // ADDRESS_SANITIZER_ONLY(X) resolves to X if ADDRESS_SANITIZER_ENABLED is
 // defined to a non-zero value, otherwise ADDRESS_SANITIZER_ONLY() is stripped
 // by the preprocessor.
 #if ADDRESS_SANITIZER_ENABLED
 #define ADDRESS_SANITIZER_ONLY(x) x
 #else
-#define ADDRESS_SANITIZER_ONLY(x)
+#define ADDRESS_SANITIZER_ONLY(x) MARL_NOP_STATEMENT
 #endif  // ADDRESS_SANITIZER_ENABLED
 
 // Define MEMORY_SANITIZER_ENABLED to 1 if the project was built with the memory
@@ -54,7 +73,7 @@
 #if MEMORY_SANITIZER_ENABLED
 #define MEMORY_SANITIZER_ONLY(x) x
 #else
-#define MEMORY_SANITIZER_ONLY(x)
+#define MEMORY_SANITIZER_ONLY(x) MARL_NOP_STATEMENT
 #endif  // MEMORY_SANITIZER_ENABLED
 
 // Define THREAD_SANITIZER_ENABLED to 1 if the project was built with the thread
@@ -69,13 +88,23 @@
 #endif  // defined(__clang__)
 #endif  // defined(__SANITIZE_THREAD__)
 
+#if THREAD_SANITIZER_ENABLED
+extern "C" {
+void* __tsan_get_current_fiber(void);
+void* __tsan_create_fiber(unsigned flags);
+void __tsan_destroy_fiber(void* fiber);
+void __tsan_switch_to_fiber(void* fiber, unsigned flags);
+void __tsan_set_fiber_name(void* fiber, const char* name);
+}
+#endif
+
 // THREAD_SANITIZER_ONLY(X) resolves to X if THREAD_SANITIZER_ENABLED is defined
 // to a non-zero value, otherwise THREAD_SANITIZER_ONLY() is stripped by the
 // preprocessor.
 #if THREAD_SANITIZER_ENABLED
 #define THREAD_SANITIZER_ONLY(x) x
 #else
-#define THREAD_SANITIZER_ONLY(x)
+#define THREAD_SANITIZER_ONLY(x) MARL_NOP_STATEMENT
 #endif  // THREAD_SANITIZER_ENABLED
 
 #endif  // marl_sanitizers_h

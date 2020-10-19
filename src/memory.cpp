@@ -17,6 +17,7 @@
 #include "marl/debug.h"
 #include "marl/sanitizers.h"
 
+#include <string.h>
 #include <cstring>
 
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__)
@@ -47,7 +48,8 @@ inline void freePages(void* ptr, size_t count) {
 inline void protectPage(void* addr) {
   auto res = mprotect(addr, pageSize(), PROT_NONE);
   (void)res;
-  MARL_ASSERT(res == 0, "Failed to protect page at %p", addr);
+  MARL_ASSERT(res == 0, "Failed to protect page at %p: %s", addr,
+              strerror(errno));
 }
 }  // anonymous namespace
 #elif defined(__Fuchsia__)
